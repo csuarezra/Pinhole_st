@@ -7,7 +7,7 @@ from scipy.signal import find_peaks
 from matplotlib import pyplot as plt
 
 def crop_image(img_path):
-    img = cv2.imread(img_path, cv2.IMREAD_GRAYSCALE
+    img = cv2.imread(img_path, cv2.IMREAD_GRAYSCALE)
     img_norm = np.uint8(img / np.max(img) * 255)
 
     th2 = cv2.adaptiveThreshold(img, 255, cv2.ADAPTIVE_THRESH_MEAN_C, cv2.THRESH_BINARY, 15, 2)
@@ -57,11 +57,11 @@ def band_pass(cropped_img, low_cut=3, high_cut=40, angle_tol=5):
     return img_filt
 
 
-def detect_edges_blur(img, apply_blur=True):
+def detect_edges(cropped_img, apply_blur=True):
     if apply_blur:
         blur = cv2.GaussianBlur(cropped_img, (7,7), 0)
     else:
-        blur = img
+        blur = cropped_img
 
     sobelx = cv2.Sobel(src=blur, ddepth=cv2.CV_8U, dx=1, dy=0, ksize=5) # Sobel Edge Detection on the X axis
     sobely = cv2.Sobel(src=blur, ddepth=cv2.CV_8U, dx=0, dy=1, ksize=5) # Sobel Edge Detection on the Y axis
@@ -136,5 +136,17 @@ def estimate_depth(edges):
 
     # Get the estimated depth
     depth = math.ceil(median)
+
+    return depth
+
+def complete_depth(img_path, bandpass=True, low_cut=3, high_cut=40, angle_tol=5):
+    cropped_img = crop_image(img_path)
+
+    if bandpass:
+        cropped_img = band_pass(cropped_img, low_cut=low_cut, high_cut=high_cut, angle_tol=angle_tol)
+
+    edges = detect_edges(cropped_img, apply_blur=~bandpass)
+
+    depth = estimate_depth(edges)
 
     return depth
