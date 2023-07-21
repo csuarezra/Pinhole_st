@@ -1,6 +1,5 @@
 scipy
-opencv-python
-Pillow
+opencv-python-headless
 matplotlib
 numpy
 pandas
