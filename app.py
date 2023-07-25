@@ -2,15 +2,13 @@ import os
 import streamlit as st
 import numpy as np
 import pandas as pd
-import itertools
-import base64
 import image_processing as imp
 
-from pathlib import Path
 from matplotlib import pyplot as plt
 from PIL import Image
 
 image = Image.open('images/vitro_logo.png')
+image2 = Image.open('images/ai_logo.png')
 img_path = "img.jpg"
 
 def process_images(images):
@@ -31,12 +29,12 @@ def process_images(images):
     return df    
 
 
-col1, col2 = st.columns([0.3, 0.7])
+col1, col2 = st.columns([0.6, 0.4])
 with col1:
-    st.image(image, width=200)
+    st.image(image2, use_column_width="auto")
 with col2:
     #st.title("VitroGPT")
-    st.markdown("<h1 style='text-align: center;'>Pinhole Depth Detector</h1>", unsafe_allow_html=True)
+    st.markdown("<h2 style='text-align: center;'>Pinhole Depth Estimator</h2>", unsafe_allow_html=True)
 
 
 #st.markdown("<h1 style='text-align: center;'>Pinhole Depth Detector</h1>", unsafe_allow_html=True)
