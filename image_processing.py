@@ -3,6 +3,7 @@ import numpy as np
 import math
 from scipy import fftpack
 from scipy.signal import find_peaks
+from skimage.draw import line as sk_line
 
 from matplotlib import pyplot as plt
 
@@ -57,29 +58,42 @@ def band_pass(cropped_img, low_cut=3, high_cut=40, angle_tol=5):
     return img_filt
 
 
-def detect_edges(cropped_img, apply_blur=True):
+def hpf_blur(cropped_img):
+    hpf = cropped_img - cv2.GaussianBlur(cropped_img, (21, 21), 3)
+    hpf = np.uint8(hpf / np.max(hpf) * 255)
+
+    blur_hpf = cv2.GaussianBlur(hpf, (21, 21), 0)
+    blur_hpf = np.uint8(blur_hpf / np.max(blur_hpf) * 255)
+
+    return blur_hpf
+
+
+def sobel_filter(cropped_img, apply_blur=True):
     if apply_blur:
         blur = cv2.GaussianBlur(cropped_img, (7,7), 0)
     else:
         blur = cropped_img
 
-    sobelx = cv2.Sobel(src=blur, ddepth=cv2.CV_8U, dx=1, dy=0, ksize=5) # Sobel Edge Detection on the X axis
-    sobely = cv2.Sobel(src=blur, ddepth=cv2.CV_8U, dx=0, dy=1, ksize=5) # Sobel Edge Detection on the Y axis
     sobelxy = cv2.Sobel(src=blur, ddepth=cv2.CV_8U, dx=1, dy=1, ksize=5) # Combined X and Y Sobel Edge Detection
 
-    sobelx_norm = np.uint8(sobelx / np.max(sobelx) * 255)
-    sobely_norm = np.uint8(sobely / np.max(sobely) * 255)
     sobelxy_norm = np.uint8(sobelxy / np.max(sobelxy) * 255)
 
     return sobelxy_norm
 
-def estimate_depth(edges):
+
+def edge_detection(cropped_img, lthresh=100, hthresh=140):
+    edges = cv2.Canny(image=cropped_img, threshold1=lthresh, threshold2=hthresh)
+
+    return edges
+
+
+def estimate_depth(edges, percentile=50):
     # Get image dimensions and center coordinates
     height, width = edges.shape
     center_x, center_y = width // 2, height // 2
 
     # Define the number of lines and angle step
-    num_lines = 180
+    num_lines = 360
     angle_step = 2 * np.pi / num_lines
 
     # Create an array to store the profiles
@@ -94,11 +108,9 @@ def estimate_depth(edges):
         # Define the coordinates of the line
         x1 = center_x + int(width * np.cos(angle) / 2)
         y1 = center_y + int(height * np.sin(angle) / 2)
-        x2 = center_x - int(width * np.cos(angle) / 2)
-        y2 = center_y - int(height * np.sin(angle) / 2)
 
         # Define the line
-        line = np.linspace([x1, y1], [x2, y2], num=int(np.sqrt(width * 2 + height * 2)))
+        line = np.linspace([x1, y1], [center_x, center_y], num=int(np.sqrt(width * 2 + height * 2 / 2.0)))
 
         # Plot the line
         # plt.plot(line[:, 0], line[:, 1], color='red')
@@ -107,7 +119,7 @@ def estimate_depth(edges):
         profile = []
         for x, y in line:
             if x >= 0 and x < width and y >= 0 and y < height:
-                pixel_value = edges[int(y), int(x)] * 255.0
+                pixel_value = edges[int(y), int(x)]
                 if pixel_value != 0:
                     profile.append(math.ceil(pixel_value))
 
@@ -129,24 +141,88 @@ def estimate_depth(edges):
     count_list = []
     for diffs in diffs_list:
         #count if the drop is more than 10 gray lives
-        count = np.count_nonzero(diffs <=int(0))/2 
+        count = np.count_nonzero(diffs <=int(0))
         count_list.append(count)
         #Calculate the median of the global minima
-        median = np.percentile(count_list, 50)
+        median = np.percentile(count_list, percentile)
 
     # Get the estimated depth
     depth = math.ceil(median)
 
     return depth
 
-def complete_depth(img_path, bandpass=True, low_cut=3, high_cut=40, angle_tol=5):
+
+def estimate_depth_edges(edges, percentile=50):
+    # Get image dimensions and center coordinates
+    height, width = edges.shape
+    center_x, center_y = width // 2, height // 2
+
+    # Define the number of lines and angle step
+    num_lines = 360
+    angle_step = 2 * np.pi / num_lines
+
+    # Create an array to store the profiles
+    count_list = []
+
+    # Loop over the angles of each line
+    for i in range(num_lines):
+        # Define the angle of the line
+        angle = i * angle_step
+        ll = np.sqrt((width / 2.0) ** 2 + (height / 2.0) ** 2)
+
+        # Define the coordinates of the line
+        x1 = center_x + int(ll * np.cos(angle))
+        y1 = center_y + int(ll * np.sin(angle))
+        
+        if x1 < 0:
+            x1 = 0
+        elif x1 > width:
+            x1 = width
+            
+        if y1 < 0:
+            y1 = 0
+        elif y1 > height:
+            y1 = height
+
+
+        # Define the line
+        rr, cc = sk_line(y1, x1, center_y, center_x)
+
+        # Get the gray intensity profile of the line 1
+        profile = []
+        count = 0
+        for x, y in zip(cc, rr):
+            if x >= 0 and x < width and y >= 0 and y < height:
+                pixel_value = edges[int(y), int(x)]
+                if pixel_value != 0:
+                    count += 1 
+        count_list.append(count)
+
+        
+    median = np.percentile(count_list, percentile)
+
+    # Get the estimated depth
+    depth = math.ceil(median)
+
+    return depth
+
+
+def complete_depth(img_path, bandpass=True, sobel=False, edge=False, low_cut=3, high_cut=40, angle_tol=5, 
+                   lthresh=100, hthresh=140, percentile=60):
     cropped_img = crop_image(img_path)
 
     if bandpass:
         cropped_img = band_pass(cropped_img, low_cut=low_cut, high_cut=high_cut, angle_tol=angle_tol)
+    else:
+        cropped_img = hpf_blur(cropped_img)
 
-    edges = detect_edges(cropped_img, apply_blur=~bandpass)
+    if sobel:
+        cropped_img = sobel_filter(cropped_img, apply_blur=~bandpass)
 
-    depth = estimate_depth(edges)
+    if edge:
+        edges = edge_detection(cropped_img, lthresh=lthresh, hthresh=hthresh)
+        depth = estimate_depth_edges(edges, percentile)
+    else:
+        depth = estimate_depth(cropped_img, percentile)
 
     return depth
